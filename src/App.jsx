@@ -65,15 +65,20 @@ export default function App() {
     setbackBack: 5,
     setbackLeft: 5,
     setbackRight: 5,
+    numberOfFloors: 3,
     addStaircase: true,
-    staircaseWidth: 10,
-    staircaseLength: 6,
+    staircaseWidth: 8,
+    staircaseLength: 12,
     addLift: true,
     liftWidth: 6,
     liftLength: 6,
     addParking: true,
-    parkingWidth: 29,
+    parkingWidth: 20,
     parkingLength: 18,
+    addHouse: true,
+    houseWidth: 30,
+    houseLength: 20,
+    houseType: '2BHK House',
   });
 
   const [surroundings, setSurroundings] = useState({
@@ -85,15 +90,11 @@ export default function App() {
   
   const [identificationText, setIdentificationText] = useState("Identified through EC Bill & Customer");
 
-  const [floors, setFloors] = useState([
-    { id: 1, name: 'Ground Floor', grossArea: 1200 },
-    { id: 2, name: 'FF to 3F', grossArea: 1200 },
-  ]);
-
   const [positions, setPositions] = useState({
-    staircase: { x: 10, y: 10 },
-    lift: { x: 25, y: 10 },
-    parking: { x: 10, y: 20 },
+    staircase: { x: 40, y: 10 },
+    lift: { x: 40, y: 25 },
+    parking: { x: 10, y: 10 },
+    house: { x: 10, y: 15 },
   });
 
   const diagramRef = useRef(null);
@@ -107,17 +108,6 @@ export default function App() {
     const { name, value } = e.target;
     setSurroundings(prev => ({ ...prev, [name]: value }));
   };
-
-  const handleFloorChange = (id, field, value) => {
-    setFloors(floors.map(f => f.id === id ? { ...f, [field]: value } : f));
-  };
-  
-  const addFloor = () => {
-    const newId = floors.length > 0 ? Math.max(...floors.map(f => f.id)) + 1 : 1;
-    setFloors([...floors, { id: newId, name: `Floor ${newId}`, grossArea: 1200 }]);
-  };
-
-  const removeFloor = (id) => setFloors(floors.filter(f => f.id !== id));
   
   const handlePositionChange = (item, pos) => {
     setPositions(prev => ({...prev, [item]: pos}));
@@ -130,34 +120,23 @@ export default function App() {
     const sR = parseFloat(inputs.setbackRight) || 0;
     const sF = parseFloat(inputs.setbackFront) || 0;
     const sB = parseFloat(inputs.setbackBack) || 0;
+    const numFloors = parseFloat(inputs.numberOfFloors) || 0;
 
     const plotArea = pW * pL;
+    
+    // Using the new formula
     const buildableWidth = pW - sL - sR;
     const buildableLength = pL - sF - sB;
-    const buildableArea = buildableWidth * buildableLength;
-    const setbackArea = plotArea - buildableArea;
-
-    const parkingArea = inputs.addParking ? (parseFloat(inputs.parkingWidth) * parseFloat(inputs.parkingLength)) : 0;
-    const staircaseArea = inputs.addStaircase ? (parseFloat(inputs.staircaseWidth) * parseFloat(inputs.staircaseLength)) : 0;
-    const liftArea = inputs.addLift ? (parseFloat(inputs.liftWidth) * parseFloat(inputs.liftLength)) : 0;
-
-    const floorCalculations = floors.map((floor, index) => {
-        const gross = parseFloat(floor.grossArea) || 0;
-        const isGroundFloor = index === 0;
-        const parkingDeduction = isGroundFloor ? parkingArea : 0;
-        const netBua = gross - parkingDeduction - staircaseArea - liftArea - setbackArea;
-        return { ...floor, netBua: Math.max(0, netBua), parkingDeduction, staircaseArea, liftArea, setbackArea };
-    });
+    const buildableArea = Math.max(0, buildableWidth) * Math.max(0, buildableLength);
+    const totalFloorArea = buildableArea * numFloors;
+    const far = plotArea > 0 ? totalFloorArea / plotArea : 0;
     
-    const totalNetBUA = floorCalculations.reduce((sum, f) => sum + f.netBua, 0);
-    const far = plotArea > 0 ? totalNetBUA / plotArea : 0;
-    
-    return { plotArea, buildableArea, setbackArea, parkingArea, staircaseArea, liftArea, floorCalculations, totalNetBUA, far };
-  }, [inputs, floors]);
+    return { plotArea, buildableArea, totalFloorArea, far };
+  }, [inputs]);
 
   const handleExport = async () => {
     if (!diagramRef.current) return;
-    const canvas = await html2canvas(diagramRef.current, { backgroundColor: '#ffffff', scale: 3 });
+    const canvas = await html2canvas(diagramRef.current, { backgroundColor: '#ffffff', scale: 2 });
     const link = document.createElement('a');
     link.download = 'plot-diagram-with-calculations.png';
     link.href = canvas.toDataURL('image/png');
@@ -174,12 +153,13 @@ export default function App() {
           <Input label="Plot Length (ft)" name="plotLength" value={inputs.plotLength} onChange={handleInputChange} />
           <Input label="Road Width (ft)" name="roadWidth" value={inputs.roadWidth} onChange={handleInputChange} />
           <Input label="Road Type" name="roadType" value={inputs.roadType} onChange={handleInputChange} type="text" />
+          <Input label="Number of Floors" name="numberOfFloors" value={inputs.numberOfFloors} onChange={handleInputChange} />
           
           <h3 className="text-lg font-semibold my-4">Setbacks</h3>
-          <Input label="Front Setback (ft)" name="setbackFront" value={inputs.setbackFront} onChange={handleInputChange} />
-          <Input label="Back Setback (ft)" name="setbackBack" value={inputs.setbackBack} onChange={handleInputChange} />
-          <Input label="Left Setback (ft)" name="setbackLeft" value={inputs.setbackLeft} onChange={handleInputChange} />
-          <Input label="Right Setback (ft)" name="setbackRight" value={inputs.setbackRight} onChange={handleInputChange} />
+          <Input label="Front (ft)" name="setbackFront" value={inputs.setbackFront} onChange={handleInputChange} />
+          <Input label="Back (ft)" name="setbackBack" value={inputs.setbackBack} onChange={handleInputChange} />
+          <Input label="Left (ft)" name="setbackLeft" value={inputs.setbackLeft} onChange={handleInputChange} />
+          <Input label="Right (ft)" name="setbackRight" value={inputs.setbackRight} onChange={handleInputChange} />
 
           <h3 className="text-lg font-semibold my-4">Internal Features</h3>
           <Checkbox label="Add Staircase" name="addStaircase" checked={inputs.addStaircase} onChange={handleInputChange} />
@@ -188,6 +168,14 @@ export default function App() {
           {inputs.addLift && <><Input label="Lift W" name="liftWidth" value={inputs.liftWidth} onChange={handleInputChange} /><Input label="Lift L" name="liftLength" value={inputs.liftLength} onChange={handleInputChange} /></>}
           <Checkbox label="Add Parking" name="addParking" checked={inputs.addParking} onChange={handleInputChange} />
           {inputs.addParking && <><Input label="Parking W" name="parkingWidth" value={inputs.parkingWidth} onChange={handleInputChange} /><Input label="Parking L" name="parkingLength" value={inputs.parkingLength} onChange={handleInputChange} /></>}
+          
+          <h3 className="text-lg font-semibold my-4">House Details</h3>
+          <Checkbox label="Add House" name="addHouse" checked={inputs.addHouse} onChange={handleInputChange} />
+          {inputs.addHouse && <>
+            <Input label="House W (ft)" name="houseWidth" value={inputs.houseWidth} onChange={handleInputChange} />
+            <Input label="House L (ft)" name="houseLength" value={inputs.houseLength} onChange={handleInputChange} />
+            <Input label="House Type (e.g., 2BHK)" name="houseType" value={inputs.houseType} onChange={handleInputChange} type="text" />
+          </>}
 
           <h3 className="text-lg font-semibold my-4">Surroundings</h3>
           <label className="block text-sm font-medium">North Direction</label>
@@ -199,6 +187,8 @@ export default function App() {
 
           <h3 className="text-lg font-semibold my-4">Identification</h3>
           <Input label="Identified By" name="identification" value={identificationText} onChange={(e) => setIdentificationText(e.target.value)} type="text" />
+          
+          <button onClick={handleExport} className="w-full mt-4 bg-blue-600 text-white py-2 rounded">Export as PNG</button>
         </div>
         
         {/* --- Right Panel --- */}
@@ -206,21 +196,18 @@ export default function App() {
           <div className="flex-1 flex justify-center items-center p-4 border rounded-md shadow-sm bg-white min-w-0">
             <div className="p-4 bg-white text-center">
               <h2 className="text-xl font-semibold mb-2">Live Diagram Preview</h2>
-              <PlotDiagramSVG inputs={inputs} surroundings={surroundings} positions={positions} onPositionChange={handlePositionChange} calculations={calculations} isExport={false} />
+              <PlotDiagramSVG inputs={inputs} surroundings={surroundings} positions={positions} onPositionChange={handlePositionChange} isExport={false} />
             </div>
           </div>
 
-          <div className="w-full border rounded-md p-4 shadow-sm bg-white overflow-y-auto max-h-[40vh]">
-            <h2 className="text-xl font-semibold mb-4">Floor-wise Gross Area</h2>
-            {floors.map((floor) => (
-              <div key={floor.id} className="grid grid-cols-3 gap-2 items-center mb-2">
-                <input type="text" value={floor.name} onChange={(e) => handleFloorChange(floor.id, 'name', e.target.value)} className="col-span-1 p-1.5 border rounded-md" />
-                <input type="number" value={floor.grossArea} onChange={(e) => handleFloorChange(floor.id, 'grossArea', e.target.value)} className="col-span-1 p-1.5 border rounded-md text-right" />
-                <button onClick={() => removeFloor(floor.id)} className="col-span-1 bg-red-500 text-white py-1 px-2 rounded hover:bg-red-600">Remove</button>
-              </div>
-            ))}
-            <button onClick={addFloor} className="w-full mt-2 bg-green-600 text-white py-2 rounded">Add Floor</button>
-            <button onClick={handleExport} className="w-full mt-4 bg-blue-600 text-white py-2 rounded">Export as PNG</button>
+          <div className="w-full border rounded-md p-4 shadow-sm bg-white">
+            <h2 className="text-xl font-semibold mb-4">Calculations Summary</h2>
+            <div className="space-y-2 text-lg">
+                <div className="flex justify-between"><span>Plot Area:</span> <strong>{calculations.plotArea.toFixed(2)} sq.ft</strong></div>
+                <div className="flex justify-between"><span>Buildable Area (per floor):</span> <strong>{calculations.buildableArea.toFixed(2)} sq.ft</strong></div>
+                <div className="flex justify-between border-t pt-2 mt-2"><span>Total Floor Area ({inputs.numberOfFloors} floors):</span> <strong className="text-blue-600">{calculations.totalFloorArea.toFixed(2)} sq.ft</strong></div>
+                <div className="flex justify-between"><span>Floor Area Ratio (FAR):</span> <strong>{calculations.far.toFixed(2)}</strong></div>
+            </div>
           </div>
         </div>
       </div>
@@ -240,29 +227,22 @@ const Checkbox = ({ label, name, ...props }) => (<div className="flex items-cent
 // --- Export-only Component ---
 const ExportableImage = React.forwardRef(({ inputs, surroundings, positions, calculations, identificationText }, ref) => {
     return (
-        <div ref={ref} className="p-8 bg-white border-2 border-black" style={{ width: '1600px', fontFamily: 'monospace' }}>
+        <div ref={ref} className="p-8 bg-white border-2 border-black" style={{ width: '1800px', fontFamily: 'monospace' }}>
             <h1 style={{ textAlign: 'center', fontSize: '28px', fontWeight: 'bold', marginBottom: '24px' }}>Plot Area Calculation</h1>
             <div className="flex gap-8">
-                <div className="w-2/3">
-                    <PlotDiagramSVG inputs={inputs} surroundings={surroundings} positions={positions} calculations={calculations} isExport={true} />
+                <div className="w-3/5">
+                    <PlotDiagramSVG inputs={inputs} surroundings={surroundings} positions={positions} isExport={true} />
                 </div>
-                <div className="w-1/3 text-lg" style={{ paddingTop: '40px' }}>
-                    <h2 style={{ fontSize: '24px', fontWeight: 'bold', borderBottom: '2px solid black', paddingBottom: '8px', marginBottom: '16px' }}>Calculation Details</h2>
-                    {calculations.floorCalculations.map((floor, index) => (
-                        <div key={floor.id} className="mb-6">
-                            <p style={{ fontWeight: 'bold', fontSize: '20px' }}>{floor.name}:</p>
-                            <p className="pl-4">{floor.grossArea} sqft (Gross)</p>
-                            {index === 0 && <p className="pl-4">- {calculations.parkingArea.toFixed(0)} sqft (Parking)</p>}
-                            <p className="pl-4">- {calculations.staircaseArea.toFixed(0)} sqft (Staircase)</p>
-                            <p className="pl-4">- {calculations.liftArea.toFixed(0)} sqft (Lift)</p>
-                            <p className="pl-4">- {calculations.setbackArea.toFixed(0)} sqft (Setbacks)</p>
-                            <p className="pl-4" style={{ borderTop: '1px solid #888', paddingTop: '4px', marginTop: '4px' }}>= <span style={{ fontWeight: 'bold' }}>{floor.netBua.toFixed(0)} sqft (Net BUA)</span></p>
-                        </div>
-                    ))}
-                    <div style={{ marginTop: '24px', borderTop: '2px solid black', paddingTop: '16px' }}>
-                        <p><strong>Total Plot Area:</strong> {calculations.plotArea.toFixed(0)} sqft</p>
-                        <p><strong>Total Net BUA:</strong> {calculations.totalNetBUA.toFixed(0)} sqft</p>
-                        <p><strong>FAR Achieved:</strong> {calculations.far.toFixed(2)}</p>
+                <div className="w-2/5 text-lg" style={{ paddingTop: '40px' }}>
+                    <h2 style={{ fontSize: '24px', fontWeight: 'bold', borderBottom: '2px solid black', paddingBottom: '8px', marginBottom: '16px' }}>Calculation Summary</h2>
+                    <div className="space-y-4 text-xl">
+                        <p><strong>Plot Area:</strong> {calculations.plotArea.toFixed(0)} sqft</p>
+                        <p><strong>Buildable Area (per floor):</strong> {calculations.buildableArea.toFixed(0)} sqft</p>
+                        <p style={{ borderTop: '1px solid #888', paddingTop: '8px', marginTop: '8px' }}>
+                            <strong>Total Floor Area ({inputs.numberOfFloors} floors):</strong> 
+                            <span style={{ fontWeight:'bold', fontSize: '24px', marginLeft: '10px' }}>{calculations.totalFloorArea.toFixed(0)} sqft</span>
+                        </p>
+                        <p><strong>Floor Area Ratio (FAR):</strong> {calculations.far.toFixed(2)}</p>
                     </div>
                 </div>
             </div>
@@ -273,10 +253,10 @@ const ExportableImage = React.forwardRef(({ inputs, surroundings, positions, cal
 
 
 // --- SVG Diagram Component ---
-const PlotDiagramSVG = ({ inputs, surroundings, positions, onPositionChange, calculations, isExport }) => {
-  const { plotWidth, plotLength, roadWidth, roadType, setbackFront, setbackBack, setbackLeft, setbackRight, northDirection, addStaircase, staircaseWidth, staircaseLength, addLift, liftWidth, liftLength, addParking, parkingWidth, parkingLength } = inputs;
+const PlotDiagramSVG = ({ inputs, surroundings, positions, onPositionChange, isExport }) => {
+  const { plotWidth, plotLength, roadWidth, roadType, setbackFront, setbackBack, setbackLeft, setbackRight, northDirection, addStaircase, staircaseWidth, staircaseLength, addLift, liftWidth, liftLength, addParking, parkingWidth, parkingLength, addHouse, houseWidth, houseLength, houseType } = inputs;
   
-  const MAX_SVG_DIM = isExport ? 900 : 500;
+  const MAX_SVG_DIM = isExport ? 1000 : 500;
   const PADDING = 60;
 
   const pW = parseFloat(plotWidth) || 0, pL = parseFloat(plotLength) || 0, rW = parseFloat(roadWidth) || 0;
@@ -293,59 +273,4 @@ const PlotDiagramSVG = ({ inputs, surroundings, positions, onPositionChange, cal
   const bW = (pW - sL - sR) * scale, bL = (pL - sF - sB) * scale;
   
   const features = {
-    staircase: { w: parseFloat(staircaseWidth) * scale, l: parseFloat(staircaseLength) * scale, show: addStaircase, fill: '#fecaca', stroke: '#b91c1c' },
-    lift: { w: parseFloat(liftWidth) * scale, l: parseFloat(liftLength) * scale, show: addLift, fill: '#d1d5db', stroke: '#4b5563' },
-    parking: { w: parseFloat(parkingWidth) * scale, l: parseFloat(parkingLength) * scale, show: addParking, fill: '#fef9c3', stroke: '#ca8a04' }
-  };
-  
-  const buildableConstraints = { x: sL * scale, y: sF * scale, bW, bL };
-
-  const directions = { top: {N:'N',S:'S',E:'E',W:'W'}, bottom: {N:'S',S:'N',E:'W',W:'E'}, left: {N:'W',S:'E',E:'N',W:'S'}, right: {N:'E',S:'W',E:'S',W:'N'} }[northDirection];
-  
-  const Text = ({ children, ...props }) => <text style={{ fontSize: isExport ? '20px' : '10px' }} {...props}>{children}</text>;
-  const BoldText = ({ children, ...props }) => <text style={{ fontSize: isExport ? '24px' : '12px', fontWeight: 'bold' }} {...props}>{children}</text>;
-  
-  return (
-    <svg width={svgWidth} height={svgHeight} xmlns="http://www.w3.org/2000/svg">
-      <g transform={`translate(${PADDING}, ${PADDING})`}>
-        {/* Surroundings & Directions */}
-        <BoldText x={pW*scale/2} y={-35} textAnchor="middle">{directions.N}</BoldText>
-        <Text x={pW*scale/2} y={-15} textAnchor="middle">({surroundings.north})</Text>
-        <BoldText x={pW*scale/2} y={pL*scale+45} textAnchor="middle">{directions.S}</BoldText>
-        <Text x={pW*scale/2} y={pL*scale+65} textAnchor="middle">({surroundings.south})</Text>
-        <BoldText x={-35} y={pL*scale/2} textAnchor="middle">{directions.W}</BoldText>
-        <Text x={-35} y={pL*scale/2+20} textAnchor="middle">({surroundings.west})</Text>
-        <BoldText x={pW*scale+35} y={pL*scale/2} textAnchor="middle">{directions.E}</BoldText>
-        <Text x={pW*scale+35} y={pL*scale/2+20} textAnchor="middle">({surroundings.east})</Text>
-
-        {/* Road and Plot */}
-        <rect x="0" y={pL*scale} width={pW*scale} height={rW*scale} fill="#e5e7eb" stroke="black" />
-        <BoldText x={pW*scale/2} y={pL*scale+rW*scale/2} textAnchor="middle" fill="#374151">{roadType}</BoldText>
-        <rect x="0" y="0" width={pW*scale} height={pL*scale} fill="#dcfce7" stroke="black" />
-
-        {/* Setback Area and Labels */}
-        <path d={`M0,0 H${pW*scale} V${pL*scale} H0 Z M${sL*scale},${sF*scale} V${(pL-sB)*scale} H${(pW-sR)*scale} V${sF*scale} Z`} fillRule="evenodd" fill="#fef9c3" opacity="0.6" />
-        <Text x={pW*scale/2} y={sF*scale/2} textAnchor="middle" alignmentBaseline="middle">{sF} ft</Text>
-        <Text x={pW*scale/2} y={pL*scale - sB*scale/2} textAnchor="middle" alignmentBaseline="middle">{sB} ft</Text>
-        <Text x={sL*scale/2} y={pL*scale/2} textAnchor="middle" transform={`rotate(-90 ${sL*scale/2} ${pL*scale/2})`}>{sL} ft</Text>
-        <Text x={pW*scale - sR*scale/2} y={pL*scale/2} textAnchor="middle" transform={`rotate(90 ${pW*scale - sR*scale/2} ${pL*scale/2})`}>{sR} ft</Text>
-
-        {/* Buildable Area */}
-        <rect x={sL*scale} y={sF*scale} width={bW} height={bL} fill="#bfdbfe" stroke="#3b82f6" strokeWidth="1" strokeDasharray="4" />
-        <foreignObject x={sL*scale} y={sF*scale} width={bW} height={bL}><div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100%',textAlign:'center',color:'#1e3a8a',fontWeight:'bold',fontSize: isExport ? '24px' : '12px'}}>Buildable Area</div></foreignObject>
-
-        {/* Draggable Items */}
-        {Object.entries(features).map(([key, f]) => f.show && (
-          <DraggableSVGItem key={key} x={positions[key].x * scale} y={positions[key].y * scale} onPositionChange={isExport ? ()=>{} : (pos) => onPositionChange(key, { x: pos.x / scale, y: pos.y / scale })} constraints={{...buildableConstraints, maxX: buildableConstraints.x + bW - f.w, maxY: buildableConstraints.y + bL - f.l}}>
-            <rect width={f.w} height={f.l} fill={f.fill} stroke={f.stroke} strokeWidth="1.5" />
-            <foreignObject width={f.w} height={f.l}><div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100%',textAlign:'center',textTransform:'capitalize',fontSize:isExport ? '16px' : '10px'}}>{key}</div></foreignObject>
-          </DraggableSVGItem>
-        ))}
-
-        {/* Dimension Lines */}
-        <Text x={pW*scale/2} y={pL*scale+rW*scale+25} textAnchor="middle">{pW} ft</Text>
-        <Text x={pW*scale+25} y={pL*scale/2} textAnchor="middle" transform={`rotate(-90 ${pW*scale+25} ${pL*scale/2})`}>{pL} ft</Text>
-      </g>
-    </svg>
-  );
-};
+    house:
