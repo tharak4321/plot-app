@@ -1,680 +1,344 @@
-import React, { useState, useRef, useMemo, useCallback } from "react";
-import html2canvas from "html2canvas";
+import React, { useState, useRef, useMemo, useCallback } from 'react';
+import html2canvas from 'html2canvas';
 
-// Helper to format camelCase keys into readable labels
-const formatLabel = (key) => {
-  const result = key.replace(/([A-Z])/g, " $1");
-  // Special handling for units or specific labels
-  if (
-    key.includes("Width") ||
-    key.includes("Length") ||
-    key.includes("setback") ||
-    key.includes("Height")
-  ) {
-    return result.charAt(0).toUpperCase() + result.slice(1) + " (ft)";
-  }
-  if (key === "floors") return "Number of Floors";
-  if (key === "plotOrientation") return "Plot Orientation (degrees)";
-  return result.charAt(0).toUpperCase() + result.slice(1);
+// --- Helper Components ---
+
+// DraggableSVGItem: A component that makes its children draggable within the SVG canvas.
+const DraggableSVGItem = ({ x, y, onPositionChange, constraints, scale, children }) => {
+  const [isDragging, setIsDragging] = useState(false);
+  const offset = useRef({ x: 0, y: 0 });
+  const itemRef = useRef(null);
+
+  const handleMouseDown = (e) => {
+    setIsDragging(true);
+    const CTM = itemRef.current.getScreenCTM();
+    offset.current = {
+      x: (e.clientX - CTM.e) / CTM.a - x,
+      y: (e.clientY - CTM.f) / CTM.d - y,
+    };
+  };
+
+  const handleMouseMove = useCallback((e) => {
+    if (isDragging) {
+      e.preventDefault();
+      const CTM = itemRef.current.getScreenCTM();
+      let newX = (e.clientX - CTM.e) / CTM.a - offset.current.x;
+      let newY = (e.clientY - CTM.f) / CTM.d - offset.current.y;
+      
+      // Apply constraints to keep item within the buildable area
+      if (constraints) {
+        newX = Math.max(constraints.x, Math.min(newX, constraints.maxX));
+        newY = Math.max(constraints.y, Math.min(newY, constraints.maxY));
+      }
+      
+      onPositionChange({ x: newX, y: newY });
+    }
+  }, [isDragging, onPositionChange, constraints]);
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  // Add and remove global event listeners
+  React.useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, handleMouseMove]);
+
+  return (
+    <g
+      ref={itemRef}
+      transform={`translate(${x}, ${y})`}
+      onMouseDown={handleMouseDown}
+      style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+    >
+      {children}
+    </g>
+  );
 };
 
+
+// Main App Component
 export default function App() {
   const [inputs, setInputs] = useState({
-    plotWidth: 50,
-    plotLength: 100,
+    plotWidth: 60,
+    plotLength: 40,
     roadWidth: 30,
-    setbackFront: 15,
-    setbackBack: 10,
-    setbackLeft: 8,
-    setbackRight: 8,
-    buildingFootprintWidth: 30, // New input for actual building footprint
-    buildingFootprintLength: 60, // New input for actual building footprint
-    floors: 3,
-    buildingHeightPerFloor: 10, // New input
-    maxGroundCoverageLimit: 60, // New regulation limit
-    maxFARLimit: 2.0, // New regulation limit
-    plotOrientation: 0, // New input for North arrow rotation (degrees)
-    addParking: true,
-    parkingWidth: 20,
-    parkingLength: 20,
-    staircaseWidth: 8,
-    staircaseLength: 8,
+    roadType: 'Main Road',
+    northDirection: 'top',
+    setbackFront: 5,
+    setbackBack: 5,
+    setbackLeft: 5,
+    setbackRight: 5,
     addStaircase: true,
-    addGrid: true, // Toggle for grid overlay
+    staircaseWidth: 8,
+    staircaseLength: 12,
+    addLift: true,
+    liftWidth: 6,
+    liftLength: 6,
   });
 
+  const [floors, setFloors] = useState([
+    { id: 1, name: 'Ground Floor', bua: 538 },
+    { id: 2, name: 'First Floor', bua: 1060 },
+    { id: 3, name: 'Second Floor', bua: 1060 },
+    { id: 4, name: 'Third Floor', bua: 1060 },
+  ]);
+
+  const [staircasePosition, setStaircasePosition] = useState({ x: 10, y: 10 });
+  const [liftPosition, setLiftPosition] = useState({ x: 30, y: 10 });
+  
   const diagramRef = useRef(null);
 
-  const handleChange = useCallback((e) => {
+  const handleChange = (e) => {
     const { name, type, value, checked } = e.target;
-    setInputs((prevInputs) => ({
-      ...prevInputs,
-      [name]:
-        type === "checkbox" ? checked : Math.max(0, parseFloat(value) || 0),
-    }));
-  }, []);
+    setInputs({
+      ...inputs,
+      [name]: type === 'checkbox' ? checked : value,
+    });
+  };
+
+  const handleFloorChange = (id, field, value) => {
+    setFloors(floors.map(floor =>
+      floor.id === id ? { ...floor, [field]: value } : floor
+    ));
+  };
+  
+  const addFloor = () => {
+    const newId = floors.length > 0 ? Math.max(...floors.map(f => f.id)) + 1 : 1;
+    setFloors([...floors, { id: newId, name: `Floor ${newId}`, bua: 1000 }]);
+  };
+
+  const removeFloor = (id) => {
+    setFloors(floors.filter(floor => floor.id !== id));
+  };
 
   const calculations = useMemo(() => {
-    const {
-      plotWidth,
-      plotLength,
-      setbackLeft,
-      setbackRight,
-      setbackFront,
-      setbackBack,
-      floors,
-      buildingFootprintWidth,
-      buildingFootprintLength,
-      buildingHeightPerFloor,
-      maxGroundCoverageLimit,
-      maxFARLimit,
-    } = inputs;
-
-    const plotArea = plotWidth * plotLength;
-    const buildableWidth = Math.max(0, plotWidth - setbackLeft - setbackRight);
-    const buildableLength = Math.max(
-      0,
-      plotLength - setbackFront - setbackBack
-    );
-    const buildableArea = buildableWidth * buildableLength;
-
-    // Ensure building footprint doesn't exceed buildable area
-    const actualBuildingWidth = Math.min(
-      buildingFootprintWidth,
-      buildableWidth
-    );
-    const actualBuildingLength = Math.min(
-      buildingFootprintLength,
-      buildableLength
-    );
-
-    const groundFloorArea = actualBuildingWidth * actualBuildingLength;
-    const totalBUA = groundFloorArea * floors;
-    const groundCoverage =
-      plotArea > 0 ? (groundFloorArea / plotArea) * 100 : 0;
+    const { plotWidth, plotLength } = inputs;
+    const plotArea = parseFloat(plotWidth) * parseFloat(plotLength);
+    const totalBUA = floors.reduce((sum, floor) => sum + parseFloat(floor.bua || 0), 0);
+    const groundFloorBUA = parseFloat(floors[0]?.bua || 0);
+    const groundCoverage = plotArea > 0 ? (groundFloorBUA / plotArea) * 100 : 0;
     const far = plotArea > 0 ? totalBUA / plotArea : 0;
-    const totalBuildingHeight = floors * buildingHeightPerFloor;
-
-    // Compliance Checks
-    const isGroundCoverageCompliant = groundCoverage <= maxGroundCoverageLimit;
-    const isFARCompliant = far <= maxFARLimit;
-    const isBuildingWithinBuildableArea =
-      buildingFootprintWidth <= buildableWidth &&
-      buildingFootprintLength <= buildableLength;
-
-    return {
-      plotArea,
-      buildableArea,
-      groundFloorArea,
-      totalBUA,
-      groundCoverage,
-      far,
-      buildableWidth,
-      buildableLength,
-      actualBuildingWidth,
-      actualBuildingLength,
-      totalBuildingHeight,
-      isGroundCoverageCompliant,
-      isFARCompliant,
-      isBuildingWithinBuildableArea,
-      maxGroundCoverageLimit,
-      maxFARLimit,
-    };
-  }, [inputs]);
+    
+    return { plotArea, totalBUA, groundCoverage, far };
+  }, [inputs.plotWidth, inputs.plotLength, floors]);
 
   const handleExport = async () => {
     if (!diagramRef.current) return;
-    const canvas = await html2canvas(diagramRef.current, {
-      backgroundColor: null,
-      logging: false,
-      scale: 2,
-    }); // Increased scale for better resolution
-    const link = document.createElement("a");
-    link.download = "advanced-plot-diagram.png";
-    link.href = canvas.toDataURL("image/png");
+    const canvas = await html2canvas(diagramRef.current, { backgroundColor: '#ffffff', scale: 2 });
+    const link = document.createElement('a');
+    link.download = 'plot-diagram-export.png';
+    link.href = canvas.toDataURL('image/png');
     link.click();
   };
 
+  // Memoize buildable dimensions to pass to draggable items
+  const buildableDimensions = useMemo(() => {
+      const { plotWidth, plotLength, setbackLeft, setbackRight, setbackFront, setbackBack } = inputs;
+      const buildableWidth = Math.max(0, plotWidth - setbackLeft - setbackRight);
+      const buildableLength = Math.max(0, plotLength - setbackFront - setbackBack);
+      return { buildableWidth, buildableLength };
+  }, [inputs]);
+
   return (
-    <div className="min-h-screen bg-gray-50 p-4 md:p-6 flex flex-col lg:flex-row gap-6 font-sans">
-      <div className="lg:w-1/3 border rounded-md p-4 shadow-sm bg-white overflow-y-auto max-h-[calc(100vh-2rem)]">
-        <h2 className="text-xl font-semibold mb-4 text-gray-800">
-          Property Dimensions & Regulations
-        </h2>
-        {Object.keys(inputs).map((key) => {
-          if (typeof inputs[key] === "boolean") {
-            return (
-              <div
-                key={key}
-                className="flex justify-between items-center text-sm mb-2 pb-1 border-b border-gray-100 last:border-b-0"
-              >
-                <label className="text-gray-600">{formatLabel(key)}</label>
-                <input
-                  type="checkbox"
-                  name={key}
-                  checked={inputs[key]}
-                  onChange={handleChange}
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-              </div>
-            );
-          }
-          return (
-            <div
-              key={key}
-              className="flex justify-between items-center text-sm mb-2 pb-1 border-b border-gray-100 last:border-b-0"
-            >
-              <label className="text-gray-600">{formatLabel(key)}</label>
-              <input
-                type="number"
-                name={key}
-                value={inputs[key]}
-                onChange={handleChange}
-                min="0"
-                step={key === "plotOrientation" ? "5" : "1"} // Allow fine-tuning for orientation
-                className="border p-1.5 w-28 text-right rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-          );
-        })}
-
-        <div className="border-t pt-4 mt-4 space-y-2">
-          <h3 className="text-lg font-semibold mb-2 text-gray-800">
-            Calculated Metrics
-          </h3>
-          <MetricItem
-            label="Plot Area"
-            value={calculations.plotArea}
-            unit="sq.ft"
-          />
-          <MetricItem
-            label="Buildable Area"
-            value={calculations.buildableArea}
-            unit="sq.ft"
-          />
-          <MetricItem
-            label="Ground Floor Area (Building)"
-            value={calculations.groundFloorArea}
-            unit="sq.ft"
-          />
-          <MetricItem
-            label="Total Built-Up Area (BUA)"
-            value={calculations.totalBUA}
-            unit="sq.ft"
-          />
-          <MetricItem
-            label="Ground Coverage"
-            value={calculations.groundCoverage}
-            unit="%"
-            compliant={calculations.isGroundCoverageCompliant}
-            limit={calculations.maxGroundCoverageLimit}
-          />
-          <MetricItem
-            label="Floor Area Ratio (FAR)"
-            value={calculations.far}
-            unit=""
-            compliant={calculations.isFARCompliant}
-            limit={calculations.maxFARLimit}
-          />
-          <MetricItem
-            label="Total Building Height"
-            value={calculations.totalBuildingHeight}
-            unit="ft"
-          />
-        </div>
-        <button
-          onClick={handleExport}
-          className="w-full mt-4 bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 transition-colors"
-        >
-          Export Diagram as PNG
-        </button>
+    <div className="min-h-screen bg-gray-100 p-4 md:p-6 flex flex-col xl:flex-row gap-6 font-sans">
+      
+      {/* --- Left Panel --- */}
+      <div className="w-full xl:w-1/4 border rounded-md p-4 shadow-sm bg-white overflow-y-auto max-h-[90vh]">
+        <h2 className="text-xl font-semibold mb-4 text-gray-800">Plot Details</h2>
+        
+        {/* Plot and Road Inputs */}
+        <Input label="Plot Width (ft)" name="plotWidth" value={inputs.plotWidth} onChange={handleChange} />
+        <Input label="Plot Length (ft)" name="plotLength" value={inputs.plotLength} onChange={handleChange} />
+        <Input label="Road Width (ft)" name="roadWidth" value={inputs.roadWidth} onChange={handleChange} />
+        <Input label="Road Type" name="roadType" value={inputs.roadType} onChange={handleChange} type="text" />
+        
+        <label className="block text-sm font-medium text-gray-700 mt-2">North Direction</label>
+        <select name="northDirection" value={inputs.northDirection} onChange={handleChange} className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md">
+            <option value="top">Top</option>
+            <option value="bottom">Bottom</option>
+            <option value="left">Left</option>
+            <option value="right">Right</option>
+        </select>
+        
+        <h3 className="text-lg font-semibold my-4 text-gray-700">Setbacks</h3>
+        <Input label="Front Setback (ft)" name="setbackFront" value={inputs.setbackFront} onChange={handleChange} />
+        <Input label="Back Setback (ft)" name="setbackBack" value={inputs.setbackBack} onChange={handleChange} />
+        <Input label="Left Setback (ft)" name="setbackLeft" value={inputs.setbackLeft} onChange={handleChange} />
+        <Input label="Right Setback (ft)" name="setbackRight" value={inputs.setbackRight} onChange={handleChange} />
+        
+        <h3 className="text-lg font-semibold my-4 text-gray-700">Internal Features</h3>
+        <Checkbox label="Add Staircase" name="addStaircase" checked={inputs.addStaircase} onChange={handleChange} />
+        {inputs.addStaircase && <>
+            <Input label="Staircase Width (ft)" name="staircaseWidth" value={inputs.staircaseWidth} onChange={handleChange} />
+            <Input label="Staircase Length (ft)" name="staircaseLength" value={inputs.staircaseLength} onChange={handleChange} />
+        </>}
+        <Checkbox label="Add Lift" name="addLift" checked={inputs.addLift} onChange={handleChange} />
+        {inputs.addLift && <>
+            <Input label="Lift Width (ft)" name="liftWidth" value={inputs.liftWidth} onChange={handleChange} />
+            <Input label="Lift Length (ft)" name="liftLength" value={inputs.liftLength} onChange={handleChange} />
+        </>}
       </div>
-
-      <div className="flex-1 flex justify-center items-center p-4 border rounded-md shadow-sm bg-white">
-        <div ref={diagramRef} className="p-4 bg-white relative">
-          <PlotDiagramSVG inputs={inputs} buildable={calculations} />
-        </div>
+      
+      {/* --- Middle Panel (Diagram) --- */}
+      <div className="flex-1 flex justify-center items-center p-4 border rounded-md shadow-sm bg-white min-w-0">
+          <div ref={diagramRef} className="p-4 bg-white">
+              <PlotDiagramSVG 
+                inputs={inputs} 
+                buildable={buildableDimensions}
+                staircasePosition={staircasePosition}
+                liftPosition={liftPosition}
+                onStaircaseMove={setStaircasePosition}
+                onLiftMove={setLiftPosition}
+              />
+          </div>
+      </div>
+      
+      {/* --- Right Panel --- */}
+      <div className="w-full xl:w-1/4 border rounded-md p-4 shadow-sm bg-white overflow-y-auto max-h-[90vh]">
+          <h2 className="text-xl font-semibold mb-4 text-gray-800">Floor-wise BUA</h2>
+          {floors.map((floor, index) => (
+              <div key={floor.id} className="grid grid-cols-3 gap-2 items-center mb-2">
+                  <input type="text" value={floor.name} onChange={(e) => handleFloorChange(floor.id, 'name', e.target.value)} className="col-span-1 p-1.5 border rounded-md shadow-sm"/>
+                  <input type="number" value={floor.bua} onChange={(e) => handleFloorChange(floor.id, 'bua', e.target.value)} className="col-span-1 p-1.5 border rounded-md shadow-sm text-right"/>
+                  <button onClick={() => removeFloor(floor.id)} className="col-span-1 bg-red-500 text-white py-1 px-2 rounded hover:bg-red-600 text-sm">Remove</button>
+              </div>
+          ))}
+          <button onClick={addFloor} className="w-full mt-2 bg-green-600 text-white py-2 rounded-md hover:bg-green-700">Add Floor</button>
+          
+          <div className="border-t pt-4 mt-4 space-y-2">
+              <h3 className="text-lg font-semibold mb-2 text-gray-800">Calculations</h3>
+              <div className="flex justify-between text-sm"><span>Plot Area:</span> <strong>{calculations.plotArea.toFixed(2)} sq.ft</strong></div>
+              <div className="flex justify-between text-sm"><span>Total BUA:</span> <strong>{calculations.totalBUA.toFixed(2)} sq.ft</strong></div>
+              <div className="flex justify-between text-sm"><span>Ground Coverage:</span> <strong>{calculations.groundCoverage.toFixed(2)} %</strong></div>
+              <div className="flex justify-between text-sm"><span>Floor Area Ratio (FAR):</span> <strong>{calculations.far.toFixed(2)}</strong></div>
+          </div>
+          <button onClick={handleExport} className="w-full mt-4 bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700">Export as PNG</button>
       </div>
     </div>
   );
 }
 
-// Reusable Metric Item Component
-const MetricItem = ({ label, value, unit, compliant = true, limit = null }) => {
-  const isComplianceMetric = limit !== null;
-  const complianceClass = isComplianceMetric
-    ? compliant
-      ? "text-green-600"
-      : "text-red-600"
-    : "text-gray-800";
-  const limitText = isComplianceMetric ? ` (Limit: ${limit}${unit})` : "";
-
-  return (
-    <div className="flex justify-between text-sm items-center pb-1 border-b border-gray-100 last:border-b-0">
-      <span className="text-gray-600">{label}:</span>
-      <strong className={`${complianceClass}`}>
-        {value.toFixed(2)}
-        {unit}
-        {limitText}
-      </strong>
+// --- Reusable Form Field Components ---
+const Input = ({ label, name, ...props }) => (
+    <div className="mb-2">
+        <label htmlFor={name} className="block text-sm font-medium text-gray-700">{label}</label>
+        <input id={name} name={name} type="number" className="mt-1 p-1.5 w-full text-right border rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500" {...props} />
     </div>
-  );
-};
+);
 
-// ------------------- Advanced SVG Component -------------------
-const PlotDiagramSVG = ({ inputs, buildable }) => {
-  const {
-    plotWidth,
-    plotLength,
-    roadWidth,
-    setbackFront,
-    setbackBack,
-    setbackLeft,
-    setbackRight,
-    parkingWidth,
-    parkingLength,
-    staircaseWidth,
-    staircaseLength,
-    addParking,
-    addStaircase,
-    plotOrientation,
-    addGrid,
-  } = inputs;
+const Checkbox = ({ label, name, ...props }) => (
+    <div className="flex items-center my-2">
+        <input id={name} name={name} type="checkbox" className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" {...props} />
+        <label htmlFor={name} className="ml-2 block text-sm text-gray-900">{label}</label>
+    </div>
+);
 
-  const PADDING = 30; // Increased padding
-  const MAX_SVG_DIM = 600; // Max dimension for the SVG canvas
 
-  const totalWidthFt = plotWidth;
-  const totalHeightFt = plotLength + roadWidth;
+// --- SVG Diagram Component ---
+const PlotDiagramSVG = ({ inputs, buildable, staircasePosition, liftPosition, onStaircaseMove, onLiftMove }) => {
+  const { plotWidth, plotLength, roadWidth, roadType, setbackFront, setbackBack, setbackLeft, setbackRight, northDirection, addStaircase, staircaseWidth, staircaseLength, addLift, liftWidth, liftLength } = inputs;
+  
+  const PADDING = 40;
+  const MAX_SVG_DIM = 500;
+
+  const totalWidthFt = parseFloat(plotWidth);
+  const totalHeightFt = parseFloat(plotLength) + parseFloat(roadWidth);
 
   if (totalWidthFt <= 0 || totalHeightFt <= 0) {
-    return (
-      <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-500">
-        Enter valid plot dimensions to view diagram
-      </div>
-    );
+    return <div className="w-full h-full flex items-center justify-center bg-gray-100">Enter valid dimensions</div>;
   }
 
-  // Calculate scale based on the largest dimension of the plot + road
-  const scale = Math.min(
-    MAX_SVG_DIM / totalWidthFt,
-    MAX_SVG_DIM / totalHeightFt
-  );
-
+  const scale = Math.min(MAX_SVG_DIM / totalWidthFt, MAX_SVG_DIM / totalHeightFt);
   const svgWidth = totalWidthFt * scale + PADDING * 2;
   const svgHeight = totalHeightFt * scale + PADDING * 2;
 
   // Scaled dimensions
-  const pW = plotWidth * scale;
-  const pL = plotLength * scale;
-  const rW = roadWidth * scale;
-  const sF = setbackFront * scale;
-  const sB = setbackBack * scale;
-  const sL = setbackLeft * scale;
-  const sR = setbackRight * scale;
+  const pW = totalWidthFt * scale;
+  const pL = parseFloat(plotLength) * scale;
+  const rW = parseFloat(roadWidth) * scale;
+  const sF = parseFloat(setbackFront) * scale;
+  const sB = parseFloat(setbackBack) * scale;
+  const sL = parseFloat(setbackLeft) * scale;
+  const sR = parseFloat(setbackRight) * scale;
 
   const bW = buildable.buildableWidth * scale;
   const bL = buildable.buildableLength * scale;
+  
+  const stairW = parseFloat(staircaseWidth) * scale;
+  const stairL = parseFloat(staircaseLength) * scale;
+  const liftW = parseFloat(liftWidth) * scale;
+  const liftL = parseFloat(liftLength) * scale;
+  
+  // Constraints for dragging
+  const stairConstraints = { x: sL, y: sF, maxX: sL + bW - stairW, maxY: sF + bL - stairL };
+  const liftConstraints = { x: sL, y: sF, maxX: sL + bW - liftW, maxY: sF + bL - liftL };
 
-  const actualBW = buildable.actualBuildingWidth * scale;
-  const actualBL = buildable.actualBuildingLength * scale;
-
-  // Center the actual building footprint within the buildable area
-  const actualBuildingX = sL + (bW - actualBW) / 2;
-  const actualBuildingY = sB + (bL - actualBL) / 2;
-
-  const parkW = parkingWidth * scale;
-  const parkL = parkingLength * scale;
-  const stairW = staircaseWidth * scale;
-  const stairL = staircaseLength * scale;
-
-  // Position parking towards the back, centered
-  const parkX = sL + (bW - parkW) / 2;
-  const parkY = sB + bL - parkL - 5; // A bit offset from the back setback
-
-  // Position staircase towards the front-left, inside building footprint
-  const stairX = actualBuildingX + 5;
-  const stairY = actualBuildingY + 5;
-
-  // Compliance colors
-  const buildingOutlineColor = buildable.isBuildingWithinBuildableArea
-    ? "#1d4ed8"
-    : "#dc2626"; // Blue for compliant, Red for non-compliant
-
-  // Grid setup
-  const gridSize = 10 * scale; // 10 ft grid lines
-
+  // Directions Logic
+  const directions = {
+      top: { N: 'N', S: 'S', E: 'E', W: 'W' },
+      bottom: { N: 'S', S: 'N', E: 'W', W: 'E' },
+      left: { N: 'W', S: 'E', E: 'N', W: 'S' },
+      right: { N: 'E', S: 'W', E: 'S', W: 'N' }
+  }[northDirection];
+  
   return (
-    <svg
-      width={svgWidth}
-      height={svgHeight}
-      viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-      xmlns="http://www.w3.org/2000/svg"
-    >
+    <svg width={svgWidth} height={svgHeight} xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <style>{`
-          .dim-text { font-size: 10px; fill: #333; }
-          .label-text { font-size: 12px; font-weight: bold; fill: #fff; }
-          .outline-text { font-size: 11px; fill: #1f2937; }
-          .compliance-label { font-size: 10px; fill: #dc2626; font-weight: bold; }
-        `}</style>
-        <marker
-          id="arrowhead"
-          markerWidth="10"
-          markerHeight="7"
-          refX="0"
-          refY="3.5"
-          orient="auto"
-        >
-          <polygon points="0 0, 10 3.5, 0 7" fill="black" />
-        </marker>
+        <style>{`.dim-text { font-size: 10px; fill: #333; } .label-text { font-size: 12px; font-weight: bold; }`}</style>
       </defs>
-
       <g transform={`translate(${PADDING}, ${PADDING})`}>
-        {/* North Arrow */}
-        <g
-          transform={`translate(${pW / 2}, ${
-            -PADDING / 2
-          }) rotate(${plotOrientation})`}
-        >
-          <line
-            x1="0"
-            y1="0"
-            x2="0"
-            y2="-20"
-            stroke="black"
-            strokeWidth="1.5"
-            markerEnd="url(#arrowhead)"
-          />
-          <text
-            x="0"
-            y="-25"
-            textAnchor="middle"
-            style={{ fontSize: "14px", fontWeight: "bold", fill: "#333" }}
-          >
-            N
-          </text>
-        </g>
-        {/* Road */}
-        <rect
-          x="0"
-          y={pL}
-          width={pW}
-          height={rW}
-          fill="#e5e7eb"
-          stroke="#6b7280"
-          strokeWidth="1"
-        />
-        <text
-          x={pW / 2}
-          y={pL + rW / 2}
-          textAnchor="middle"
-          alignmentBaseline="middle"
-          className="label-text"
-          fill="#374151"
-        >
-          Road ({inputs.roadWidth} ft)
-        </text>
-        {/* Plot Area */}
-        <rect
-          x="0"
-          y="0"
-          width={pW}
-          height={pL}
-          fill="#dcfce7"
-          stroke="#15803d"
-          strokeWidth="1"
-        />
-        <text
-          x={pW / 2}
-          y={pL / 2}
-          textAnchor="middle"
-          alignmentBaseline="middle"
-          className="outline-text"
-        >
-          Plot Area: {buildable.plotArea.toFixed(0)} sq.ft
-        </text>
-        {/* Setbacks */}
-        <rect
-          x="0"
-          y="0"
-          width={sL}
-          height={pL}
-          fill="#fef9c3"
-          opacity="0.5"
-        />{" "}
-        {/* Left Setback */}
-        <rect
-          x={pW - sR}
-          y="0"
-          width={sR}
-          height={pL}
-          fill="#fef9c3"
-          opacity="0.5"
-        />{" "}
-        {/* Right Setback */}
-        <rect
-          x="0"
-          y="0"
-          width={pW}
-          height={sF}
-          fill="#fef9c3"
-          opacity="0.5"
-        />{" "}
-        {/* Front Setback */}
-        <rect
-          x="0"
-          y={pL - sB}
-          width={pW}
-          height={sB}
-          fill="#fef9c3"
-          opacity="0.5"
-        />{" "}
-        {/* Back Setback */}
-        <text
-          x={sL / 2}
-          y={pL / 2}
-          textAnchor="middle"
-          alignmentBaseline="middle"
-          className="dim-text"
-          transform={`rotate(-90, ${sL / 2}, ${pL / 2})`}
-        >
-          {inputs.setbackLeft} ft
-        </text>
-        <text
-          x={pW - sR / 2}
-          y={pL / 2}
-          textAnchor="middle"
-          alignmentBaseline="middle"
-          className="dim-text"
-          transform={`rotate(90, ${pW - sR / 2}, ${pL / 2})`}
-        >
-          {inputs.setbackRight} ft
-        </text>
-        <text
-          x={pW / 2}
-          y={sF / 2}
-          textAnchor="middle"
-          alignmentBaseline="middle"
-          className="dim-text"
-        >
-          {inputs.setbackFront} ft
-        </text>
-        <text
-          x={pW / 2}
-          y={pL - sB / 2}
-          textAnchor="middle"
-          alignmentBaseline="middle"
-          className="dim-text"
-        >
-          {inputs.setbackBack} ft
-        </text>
+        
+        {/* Direction Labels */}
+        <text x={pW / 2} y={-15} textAnchor="middle" className="label-text">{directions.N}</text>
+        <text x={pW / 2} y={pL + 15} textAnchor="middle" className="label-text">{directions.S}</text>
+        <text x={-15} y={pL / 2} textAnchor="middle" alignmentBaseline="middle">{directions.W}</text>
+        <text x={pW + 15} y={pL / 2} textAnchor="middle" alignmentBaseline="middle">{directions.E}</text>
+        
+        {/* Road and Plot */}
+        <rect x="0" y={pL} width={pW} height={rW} fill="#e5e7eb" stroke="#6b7280" strokeWidth="1" />
+        <text x={pW / 2} y={pL + rW / 2} textAnchor="middle" alignmentBaseline="middle" className="label-text" fill="#374151">{roadType} ({inputs.roadWidth} ft)</text>
+
+        <rect x="0" y="0" width={pW} height={pL} fill="#dcfce7" stroke="#15803d" strokeWidth="1" />
+
         {/* Buildable Area */}
-        <rect
-          x={sL}
-          y={sF}
-          width={bW}
-          height={bL}
-          fill="#bfdbfe"
-          stroke="#3b82f6"
-          strokeWidth="1"
-          strokeDasharray="2"
-        />
-        <text
-          x={sL + bW / 2}
-          y={sF + bL / 2}
-          textAnchor="middle"
-          alignmentBaseline="middle"
-          className="outline-text"
-          fill="#1e3a8a"
-        >
-          Buildable Area: {buildable.buildableArea.toFixed(0)} sq.ft
-        </text>
-        {/* Actual Building Footprint */}
-        <rect
-          x={actualBuildingX}
-          y={actualBuildingY}
-          width={actualBW}
-          height={actualBL}
-          fill="#93c5fd"
-          stroke={buildingOutlineColor}
-          strokeWidth="2"
-        />
-        <text
-          x={actualBuildingX + actualBW / 2}
-          y={actualBuildingY + actualBL / 2}
-          textAnchor="middle"
-          alignmentBaseline="middle"
-          className="label-text"
-          fill="#1e3a8a"
-        >
-          Building Footprint ({buildable.actualBuildingWidth.toFixed(0)}x
-          {buildable.actualBuildingLength.toFixed(0)}ft)
-        </text>
-        {!buildable.isBuildingWithinBuildableArea && (
-          <text
-            x={sL + bW / 2}
-            y={sF + bL + 10}
-            textAnchor="middle"
-            className="compliance-label"
-          >
-            Building exceeds Buildable Area!
-          </text>
+        <rect x={sL} y={sF} width={bW} height={bL} fill="#bfdbfe" stroke="#3b82f6" strokeWidth="1" strokeDasharray="4" />
+        <foreignObject x={sL} y={sF} width={bW} height={bL}>
+            <div style={{width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: '#1e3a8a', fontWeight: 'bold', fontSize: '12px'}}>
+                Buildable Area
+            </div>
+        </foreignObject>
+
+        {/* Draggable Staircase */}
+        {addStaircase && (
+          <DraggableSVGItem x={staircasePosition.x * scale} y={staircasePosition.y * scale} onPositionChange={(pos) => onStaircaseMove({ x: pos.x / scale, y: pos.y / scale })} constraints={stairConstraints} scale={scale}>
+            <rect width={stairW} height={stairL} fill="#fecaca" stroke="#b91c1c" strokeWidth="1.5" />
+            <foreignObject width={stairW} height={stairL} requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility">
+                <div style={{width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: '#7f1d1d', fontSize: '10px', padding: '2px', boxSizing: 'border-box'}}>Staircase</div>
+            </foreignObject>
+          </DraggableSVGItem>
         )}
-        {/* Parking */}
-        {addParking && parkingWidth > 0 && parkingLength > 0 && (
-          <rect
-            x={parkX}
-            y={parkY}
-            width={parkW}
-            height={parkL}
-            fill="#fef08a"
-            stroke="#ca8a04"
-            strokeDasharray="4"
-          />
+        
+        {/* Draggable Lift */}
+        {addLift && (
+            <DraggableSVGItem x={liftPosition.x * scale} y={liftPosition.y * scale} onPositionChange={(pos) => onLiftMove({ x: pos.x / scale, y: pos.y / scale })} constraints={liftConstraints} scale={scale}>
+                <rect width={liftW} height={liftL} fill="#d1d5db" stroke="#4b5563" strokeWidth="1.5" />
+                <foreignObject width={liftW} height={liftL}>
+                    <div style={{width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#1f2937', fontSize: '10px'}}>Lift</div>
+                </foreignObject>
+            </DraggableSVGItem>
         )}
-        {addParking && parkingWidth > 0 && parkingLength > 0 && (
-          <text
-            x={parkX + parkW / 2}
-            y={parkY + parkL / 2}
-            textAnchor="middle"
-            alignmentBaseline="middle"
-            className="dim-text"
-            fill="#a16207"
-          >
-            Parking
-          </text>
-        )}
-        {/* Staircase */}
-        {addStaircase && staircaseWidth > 0 && staircaseLength > 0 && (
-          <rect
-            x={stairX}
-            y={stairY}
-            width={stairW}
-            height={stairL}
-            fill="#fecaca"
-            stroke="#dc2626"
-            strokeDasharray="2"
-          />
-        )}
-        {addStaircase && staircaseWidth > 0 && staircaseLength > 0 && (
-          <text
-            x={stairX + stairW / 2}
-            y={stairY + stairL / 2}
-            textAnchor="middle"
-            alignmentBaseline="middle"
-            className="dim-text"
-            fill="#b91c1c"
-          >
-            Stair
-          </text>
-        )}
-        {/* Grid Overlay */}
-        {addGrid && (
-          <g
-            className="grid-overlay"
-            stroke="#cccccc"
-            strokeWidth="0.5"
-            opacity="0.4"
-          >
-            {/* Horizontal lines */}
-            {Array.from({ length: Math.floor(pL / (gridSize / scale)) }).map(
-              (_, i) => (
-                <line
-                  key={`h-grid-${i}`}
-                  x1="0"
-                  y1={i * gridSize}
-                  x2={pW}
-                  y2={i * gridSize}
-                />
-              )
-            )}
-            {/* Vertical lines */}
-            {Array.from({ length: Math.floor(pW / (gridSize / scale)) }).map(
-              (_, i) => (
-                <line
-                  key={`v-grid-${i}`}
-                  x1={i * gridSize}
-                  y1="0"
-                  x2={i * gridSize}
-                  y2={pL}
-                />
-              )
-            )}
-          </g>
-        )}
-        {/* Overall Dimensions (Plot) */}
-        <path
-          d={`M 0 ${pL + rW + 10} L ${pW} ${pL + rW + 10}`}
-          stroke="black"
-          strokeWidth="0.5"
-          markerEnd="url(#arrowhead)"
-          markerStart="url(#arrowhead)"
-        />
-        <text
-          x={pW / 2}
-          y={pL + rW + 20}
-          textAnchor="middle"
-          className="dim-text"
-        >
-          {plotWidth} ft
-        </text>
-        <path
-          d={`M ${pW + 10} 0 L ${pW + 10} ${pL}`}
-          stroke="black"
-          strokeWidth="0.5"
-          markerEnd="url(#arrowhead)"
-          markerStart="url(#arrowhead)"
-        />
-        <text
-          x={pW + 20}
-          y={pL / 2}
-          textAnchor="middle"
-          className="dim-text"
-          transform={`rotate(-90, ${pW + 20}, ${pL / 2})`}
-        >
-          {plotLength} ft
-        </text>
+
+        {/* Dimension Lines */}
+        <text x={pW / 2} y={pL + rW + 25} textAnchor="middle" className="dim-text">{plotWidth} ft</text>
+        <text x={pW + 25} y={pL / 2} textAnchor="middle" className="dim-text" transform={`rotate(-90, ${pW + 25}, ${pL/2})`}>{plotLength} ft</text>
       </g>
     </svg>
   );
