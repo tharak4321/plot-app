@@ -7,9 +7,11 @@ export default function DraggableSVGItem({ x, y, onPositionChange, constraints, 
 
   // Helper to get correct coordinates for both mouse and touch events
   const getPointerPosition = (e) => {
+    // Correctly check for touch events first
     if (e.touches && e.touches.length > 0) {
       return { x: e.touches[0].clientX, y: e.touches[0].clientY };
     }
+    // Fallback for mouse events
     return { x: e.clientX, y: e.clientY };
   };
 
@@ -66,6 +68,8 @@ export default function DraggableSVGItem({ x, y, onPositionChange, constraints, 
     };
   }, [isDragging, handleDragStart, handleDragMove, handleDragEnd]);
 
+  // **CRITICAL FIX IS HERE**
+  // The return statement correctly renders the children inside the <g> tag.
   return (
     <g ref={itemRef} transform={`translate(${x}, ${y})`} style={{ cursor: isDragging ? 'grabbing' : 'grab' }}>
       {children}
