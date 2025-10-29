@@ -24,10 +24,9 @@ export const useAppData = () => {
     try {
       const savedState = localStorage.getItem('plotDiagramState');
       return savedState ? JSON.parse(savedState) : INITIAL_STATE;
-    } catch (error) {
-      return INITIAL_STATE;
-    }
+    } catch (error) { return INITIAL_STATE; }
   });
+  const [collisionItemKey, setCollisionItemKey] = useState(null);
 
   useEffect(() => {
     localStorage.setItem('plotDiagramState', JSON.stringify(appState));
@@ -56,54 +55,39 @@ export const useAppData = () => {
     
     const totalNetBUA = floorCalculations.reduce((sum, f) => sum + f.netBua, 0);
     const far = plotArea > 0 ? totalNetBUA / plotArea : 0;
-    const isCompliant = totalNetBUA <= totalAllowableFloorArea;
-
-    return { plotArea, buildableArea, buildableWidth, buildableLength, setbackArea, totalAllowableFloorArea, floorCalculations, totalNetBUA, far, isCompliant, ...itemAreas };
+    return { plotArea, buildableArea, buildableWidth, buildableLength, setbackArea, totalAllowableFloorArea, floorCalculations, totalNetBUA, far, ...itemAreas };
   }, [inputs, items, floors]);
 
-  const setAllState = (newState) => setAppState(p => ({...p, ...newState}));
+  const setState = (key, value) => setAppState(p => ({...p, [key]: value}));
 
   const handleItemChange = (key, field, value) => {
-      const updatedItems = { ...items, [key]: { ...items[key], [field]: value } };
-      const currentItem = updatedItems[key];
-      // Boundary & Collision Check on resize
-      if ((field === 'width' && value > calculations.buildableWidth) || (field === 'length' && value > calculations.buildableLength)) {
-          alert("Item size cannot exceed buildable dimensions.");
-          return;
-      }
-      for (const otherKey in updatedItems) {
-          if (key !== otherKey && updatedItems[otherKey].enabled) {
-              if (checkCollision(currentItem, updatedItems[otherKey])) {
-                  alert("Item size causes a collision with another item.");
-                  return;
-              }
-          }
-      }
-      setAppState(p => ({ ...p, items: updatedItems }));
+    const updatedItems = { ...items, [key]: { ...items[key], [field]: value } };
+    const currentItem = updatedItems[key];
+    if ((field === 'width' && value > calculations.buildableWidth) || (field === 'length' && value > calculations.buildableLength)) return;
+    for (const otherKey in updatedItems) {
+      if (key !== otherKey && updatedItems[otherKey].enabled && checkCollision(currentItem, updatedItems[otherKey])) return;
+    }
+    setAppState(p => ({ ...p, items: updatedItems }));
   };
 
   const handlePositionChange = (itemName, newPosition) => {
     const currentItem = { ...items[itemName], position: newPosition };
-    let collision = false;
     for (const key in items) {
-      if (key !== itemName && items[key].enabled) {
-        if (checkCollision(currentItem, items[key])) {
-          collision = true;
-          break;
-        }
+      if (key !== itemName && items[key].enabled && checkCollision(currentItem, items[key])) {
+        setCollisionItemKey(key);
+        setTimeout(() => setCollisionItemKey(null), 500);
+        return;
       }
     }
-    if (!collision) {
-      setAppState(p => ({ ...p, items: { ...p.items, [itemName]: { ...p.items[itemName], position: newPosition } } }));
-    }
+    setAppState(p => ({ ...p, items: { ...p.items, [itemName]: { ...p.items[itemName], position: newPosition } } }));
   };
 
   const resetData = () => {
-      if (window.confirm("Are you sure you want to reset all data? This cannot be undone.")) {
+      if (window.confirm("Are you sure you want to reset all data?")) {
           localStorage.removeItem('plotDiagramState');
           setAppState(INITIAL_STATE);
       }
   };
 
-  return { ...appState, setAllState, calculations, handleItemChange, handlePositionChange, resetData };
+  return { ...appState, setState, calculations, handleItemChange, handlePositionChange, resetData, collisionItemKey };
 };
