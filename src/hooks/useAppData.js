@@ -1,15 +1,17 @@
 import { useState, useMemo, useEffect } from 'react';
 
+// ... (checkCollision function remains the same)
 const checkCollision = (item1, item2) => {
   const rect1 = { x: item1.position.x, y: item1.position.y, width: parseFloat(item1.width) || 0, height: parseFloat(item1.length) || 0 };
   const rect2 = { x: item2.position.x, y: item2.position.y, width: parseFloat(item2.width) || 0, height: parseFloat(item2.length) || 0 };
   return rect1.x < rect2.x + rect2.width && rect1.x + rect1.width > rect2.x && rect1.y < rect2.y + rect2.height && rect1.y + rect1.height > rect2.y;
 };
 
+
 const INITIAL_STATE = {
   inputs: { plotWidth: 60, plotLength: 40, roadWidth: 30, roadType: 'Main Road', northDirection: 'top', setbackFront: 5, setbackBack: 5, setbackLeft: 5, setbackRight: 5 },
   items: {
-    house: { enabled: true, width: 30, length: 25, description: 'G+2 House', position: { x: 15, y: 10 } },
+    house: { enabled: true, width: 30, length: 25, description: 'G+2 House', facing: 'north', position: { x: 15, y: 10 } },
     staircase: { enabled: true, width: 10, length: 6, position: { x: 50, y: 10 } },
     lift: { enabled: true, width: 6, length: 6, position: { x: 50, y: 18 } },
     parking: { enabled: true, width: 20, length: 15, position: { x: 15, y: 15 } },
@@ -28,6 +30,7 @@ export const useAppData = () => {
   });
   const [collisionItemKey, setCollisionItemKey] = useState(null);
 
+  // ... (useEffect for localStorage and calculations useMemo remain the same)
   useEffect(() => {
     localStorage.setItem('plotDiagramState', JSON.stringify(appState));
   }, [appState]);
@@ -42,21 +45,17 @@ export const useAppData = () => {
     const buildableArea = buildableWidth * buildableLength;
     const setbackArea = plotArea - buildableArea;
     const totalAllowableFloorArea = buildableArea * floors.length;
-
-    const itemAreas = Object.fromEntries(Object.entries(items).map(([key, item]) => [
-        `${key}Area`, item.enabled ? (parseFloat(item.width) * parseFloat(item.length)) : 0
-    ]));
-
+    const itemAreas = Object.fromEntries(Object.entries(items).map(([key, item]) => [ `${key}Area`, item.enabled ? (parseFloat(item.width) * parseFloat(item.length)) : 0 ]));
     const floorCalculations = floors.map((floor, index) => {
         const gross = parseFloat(floor.grossArea) || 0;
         const netBua = gross - (index === 0 ? itemAreas.parkingArea : 0) - itemAreas.staircaseArea - itemAreas.liftArea - setbackArea;
         return { ...floor, netBua: Math.max(0, netBua), ...itemAreas, setbackArea, parkingDeduction: (index === 0 ? itemAreas.parkingArea : 0) };
     });
-    
     const totalNetBUA = floorCalculations.reduce((sum, f) => sum + f.netBua, 0);
     const far = plotArea > 0 ? totalNetBUA / plotArea : 0;
     return { plotArea, buildableArea, buildableWidth, buildableLength, setbackArea, totalAllowableFloorArea, floorCalculations, totalNetBUA, far, ...itemAreas };
   }, [inputs, items, floors]);
+
 
   const setState = (key, value) => setAppState(p => ({...p, [key]: value}));
 
