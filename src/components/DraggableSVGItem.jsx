@@ -5,10 +5,13 @@ export default function DraggableSVGItem({ x, y, onPositionChange, constraints, 
   const offset = useRef({ x: 0, y: 0 });
   const itemRef = useRef(null);
 
+  // Helper to get correct coordinates for both mouse and touch events
   const getPointerPosition = (e) => {
     if (e.touches && e.touches.length > 0) {
-      return { x: e.touches.clientX, y: e.touches.clientY };
+      // Correctly access the first touch point
+      return { x: e.touches[0].clientX, y: e.touches[0].clientY };
     }
+    // Fallback for mouse events
     return { x: e.clientX, y: e.clientY };
   };
 
@@ -42,30 +45,57 @@ export default function DraggableSVGItem({ x, y, onPositionChange, constraints, 
   useEffect(() => {
     const node = itemRef.current;
     if (node) {
-      // Mouse Events
+      // Add event listeners for both mouse and touch
       node.addEventListener('mousedown', handleDragStart);
-      // Touch Events
       node.addEventListener('touchstart', handleDragStart, { passive: true });
     }
 
     if (isDragging) {
       document.addEventListener('mousemove', handleDragMove);
-      document.addEventListener('mouseup', handleDragEnd);
       document.addEventListener('touchmove', handleDragMove, { passive: false });
+      document.addEventListener('mouseup', handleDragEnd);
       document.addEventListener('touchend', handleDragEnd);
     }
     
+    // Cleanup function
     return () => {
       if (node) {
         node.removeEventListener('mousedown', handleDragStart);
         node.removeEventListener('touchstart', handleDragStart);
       }
       document.removeEventListener('mousemove', handleDragMove);
-      document.removeEventListener('mouseup', handleDragEnd);
       document.removeEventListener('touchmove', handleDragMove);
+      document.removeEventListener('mouseup', handleDragEnd);
       document.removeEventListener('touchend', handleDragEnd);
     };
   }, [isDragging, handleDragStart, handleDragMove, handleDragEnd]);
 
-  return <g ref={itemRef} transform={`translate(${x}, ${y})`} style={{ cursor: isDragging ? 'grabbing' : 'grab' }}>{children}</g>;
-};
+  return (
+    <g ref={itemRef} transform={`translate(${x}, ${y})`} style={{ cursor: isDragging ? 'grabbing' : 'grab' }}>
+      {children}
+    </g>
+  );
+}```
+
+### **Steps to Fix and Redeploy**
+
+Please follow these steps exactly to ensure the fix is applied.
+
+1.  **Open your command line/terminal** and navigate to your local `plot-diagram-app` directory.
+
+2.  **Stage the single changed file:**
+    ```bash
+    git add src/components/DraggableSVGItem.jsx
+    ```
+
+3.  **Commit the fix** with a clear message:
+    ```bash
+    git commit -m "FIX: Correct syntax and touch logic in DraggableSVGItem"
+    ```
+
+4.  **Push the fix to GitHub:**
+    ```bash
+    git push origin main
+    ```
+
+This time, the build should pass the syntax check and proceed. Thank you for your patience, and let's get this working.
