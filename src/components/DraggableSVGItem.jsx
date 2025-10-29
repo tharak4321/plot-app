@@ -8,10 +8,8 @@ export default function DraggableSVGItem({ x, y, onPositionChange, constraints, 
   // Helper to get correct coordinates for both mouse and touch events
   const getPointerPosition = (e) => {
     if (e.touches && e.touches.length > 0) {
-      // Correctly access the first touch point
       return { x: e.touches[0].clientX, y: e.touches[0].clientY };
     }
-    // Fallback for mouse events
     return { x: e.clientX, y: e.clientY };
   };
 
@@ -45,7 +43,6 @@ export default function DraggableSVGItem({ x, y, onPositionChange, constraints, 
   useEffect(() => {
     const node = itemRef.current;
     if (node) {
-      // Add event listeners for both mouse and touch
       node.addEventListener('mousedown', handleDragStart);
       node.addEventListener('touchstart', handleDragStart, { passive: true });
     }
@@ -57,7 +54,6 @@ export default function DraggableSVGItem({ x, y, onPositionChange, constraints, 
       document.addEventListener('touchend', handleDragEnd);
     }
     
-    // Cleanup function
     return () => {
       if (node) {
         node.removeEventListener('mousedown', handleDragStart);
@@ -76,4 +72,3 @@ export default function DraggableSVGItem({ x, y, onPositionChange, constraints, 
     </g>
   );
 }
-// NOTICE: The extra closing brace '}' that was here before has been removed.
